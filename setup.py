@@ -29,7 +29,7 @@ ASF_URL = 'https://archive.apache.org/dist/'
 
 APR_VERSION = '1.7.6'
 APR_UTIL_VERSION = '1.6.5'
-HTTPD_VERSION = '2.4.69'
+HTTPD_VERSION = '2.4.71'
 
 APR_URL = ASF_URL + 'apr/apr-%s.tar.gz' % APR_VERSION
 APR_UTIL_URL = ASF_URL + 'apr/apr-util-%s.tar.gz' % APR_UTIL_VERSION
