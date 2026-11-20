@@ -1,16 +1,23 @@
+from __future__ import print_function
+
 import os
 import shutil
 import re
 import hashlib
+import tarfile
 
-from urllib.request import urlretrieve
+try:
+    from urllib.request import urlretrieve
+except ImportError:
+    from urllib import urlretrieve
 
 from setuptools import setup, Extension
 
 UPSTREAM_DIR = 'upstream'
 
 def download_url(url):
-    os.makedirs(UPSTREAM_DIR, exist_ok=True)
+    if not os.path.isdir(UPSTREAM_DIR):
+        os.makedirs(UPSTREAM_DIR)
     package = os.path.join(UPSTREAM_DIR, os.path.basename(url))
     if not os.path.isfile(package):
         print('Downloading', url)
@@ -22,7 +29,7 @@ ASF_URL = 'https://archive.apache.org/dist/'
 
 APR_VERSION = '1.7.6'
 APR_UTIL_VERSION = '1.6.5'
-HTTPD_VERSION = '2.4.69'
+HTTPD_VERSION = '2.4.71'
 
 APR_URL = ASF_URL + 'apr/apr-%s.tar.gz' % APR_VERSION
 APR_UTIL_URL = ASF_URL + 'apr/apr-util-%s.tar.gz' % APR_UTIL_VERSION
@@ -37,6 +44,18 @@ PCRE2_VERSION = '10.49'
 PCRE2_URL = 'https://github.com/PCRE2Project/pcre2/releases/download/pcre2-%s/pcre2-%s.tar.gz' % (PCRE2_VERSION, PCRE2_VERSION)
 
 download_url(PCRE2_URL)
+
+
+def extract_tarball(name, version):
+    # Unpack with tarfile rather than the shell's tar: pcre2's release
+    # tarball is a pre-POSIX tar with no ustar magic, which BusyBox tar
+    # rejects with "invalid tar magic".
+    shutil.rmtree('build/%s-%s' % (name, version), ignore_errors=True)
+    archive = tarfile.open('upstream/%s-%s.tar.gz' % (name, version))
+    try:
+        archive.extractall('build')
+    finally:
+        archive.close()
 
 VERSIONS_HASH = ':'.join([APR_VERSION, APR_UTIL_VERSION,
         PCRE2_VERSION, HTTPD_VERSION]).encode('UTF-8')
@@ -57,9 +76,9 @@ if not os.path.isfile(VERSION_HASH_FILE):
 
     destdir = os.path.join(os.getcwd(), 'src/httpd')
 
-    res = os.system('rm -rf build/apr-%(version)s && '
-            'tar -x -v -C build -f upstream/apr-%(version)s.tar.gz && '
-            'cd build/apr-%(version)s && '
+    extract_tarball('apr', APR_VERSION)
+
+    res = os.system('cd build/apr-%(version)s && '
             './configure --prefix=%(builddir)s && '
             'make && make install' % dict(builddir=builddir,
             version=APR_VERSION))
@@ -67,9 +86,9 @@ if not os.path.isfile(VERSION_HASH_FILE):
     if res:
         raise RuntimeError('Failed to build APR.')
 
-    res = os.system('rm -rf build/apr-util-%(version)s && '
-            'tar -x -v -C build -f upstream/apr-util-%(version)s.tar.gz && '
-            'cd build/apr-util-%(version)s && '
+    extract_tarball('apr-util', APR_UTIL_VERSION)
+
+    res = os.system('cd build/apr-util-%(version)s && '
             './configure --prefix=%(builddir)s '
             '--with-apr=%(builddir)s/bin/apr-1-config && '
             'make && make install' % dict(builddir=builddir,
@@ -78,9 +97,9 @@ if not os.path.isfile(VERSION_HASH_FILE):
     if res:
         raise RuntimeError('Failed to build APR-UTIL.')
 
-    res = os.system('rm -rf build/pcre2-%(version)s && '
-            'tar -x -v -C build -f upstream/pcre2-%(version)s.tar.gz && '
-            'cd build/pcre2-%(version)s && '
+    extract_tarball('pcre2', PCRE2_VERSION)
+
+    res = os.system('cd build/pcre2-%(version)s && '
             './configure --prefix=%(builddir)s && '
             'make && make install' % dict(builddir=builddir,
             version=PCRE2_VERSION))
@@ -88,9 +107,9 @@ if not os.path.isfile(VERSION_HASH_FILE):
     if res:
         raise RuntimeError('Failed to build PCRE2.')
 
-    res = os.system('rm -rf build/httpd-%(version)s && '
-            'tar -x -v -C build -f upstream/httpd-%(version)s.tar.gz && '
-            'cd build/httpd-%(version)s && '
+    extract_tarball('httpd', HTTPD_VERSION)
+
+    res = os.system('cd build/httpd-%(version)s && '
             './configure --prefix=%(builddir)s '
             '--enable-mpms-shared=all --enable-so --enable-rewrite '
             '--with-apr=%(builddir)s/bin/apr-1-config '
@@ -101,6 +120,15 @@ if not os.path.isfile(VERSION_HASH_FILE):
 
     if res:
         raise RuntimeError('Failed to build HTTPD.')
+
+    # Copy shared libraries the build linked from outside the package, named
+    # in MOD_WSGI_HTTPD_BUNDLE_LIBS (colon-separated paths), into its lib
+    # directory, which mod_wsgi-express puts on the library path. This makes
+    # the package run where the system does not provide them.
+    for path in os.environ.get('MOD_WSGI_HTTPD_BUNDLE_LIBS', '').split(':'):
+        if path:
+            shutil.copy(path, os.path.join(builddir, 'lib',
+                    os.path.basename(path)))
 
     shutil.rmtree('build/httpd/build-1', ignore_errors=True)
     shutil.rmtree('build/httpd/cgi-bin', ignore_errors=True)
